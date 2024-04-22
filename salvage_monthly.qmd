@@ -1,0 +1,165 @@
+---
+title: "Salvage Monthly Report"
+subtitle: "April 2024"
+author: "Bryan Nguyen"
+format: 
+    docx:
+        toc: FALSE
+---
+
+```{r Settings}
+#| echo: FALSE
+#| include: FALSE
+focal_month = 4 
+prev_month = focal_month - 1 # manually set when comparing Jan to Dec of last year
+if (prev_month == 0) {
+    prev_month = 12
+    prev_year = TRUE
+} else {
+    prev_year = FALSE
+}
+
+```
+
+```{r Libraries}
+```
+
+```{r Setup}
+#| echo: FALSE
+#| include: FALSE
+
+library("tidyverse")
+library("readxl")
+library("ggplot2")
+library("lubridate")
+
+lad_long <- read_tsv("data/lad_long_WY2024.txt")
+excel_file <- read_excel("data/ONCOR_assignment_summary-WY2024-20240117.1_SaMT_SHERLOCK_Results.xlsx", sheet = "Working")
+names(excel_file) <- make.names(names(excel_file)) # Make column names valid
+excel_file <- excel_file %>%
+  mutate(
+    GTSeq.Assignment = if_else(
+      GTSeq.Assignment == "Non-winter",
+      "Non-Winter",
+      GTSeq.Assignment
+    )
+  )
+df <- excel_file %>%
+    mutate(
+        SampleDate = force_tz(SampleDate, "America/Los_Angeles"),
+        pop_struct_used = str_detect(SHERLOCK.Group, "\\*"),
+        SHERLOCK.Group = str_replace_all(SHERLOCK.Group, "\\*", ""),
+        SHERLOCK.Assignment = str_replace_all(SHERLOCK.Assignment, "\\*", "")
+    ) %>%
+    filter(
+        SHERLOCK.Group != "Likely heterozygote",
+        SHERLOCK.Group != "Pending QA/QC",
+        SHERLOCK.Group != "NA",
+        GTSeq.Group != "Steelhead",
+        Model == "Winter"
+    ) %>%
+    rename(SH_OTS28 = SH..OTS.28)
+
+    df_month <- df %>%
+    filter(month(SampleDate) == focal_month)
+    
+    cfs_df <- excel_file %>%
+  mutate(
+        SampleDate = force_tz(SampleDate, "America/Los_Angeles"),
+        pop_struct_used = str_detect(SHERLOCK.Group, "\\*"),
+        SHERLOCK.Group = str_replace_all(SHERLOCK.Group, "\\*", ""),
+        SHERLOCK.Assignment = str_replace_all(SHERLOCK.Assignment, "\\*", "")
+    ) %>%
+  filter(
+        GTSeq.Group != "Steelhead",
+        Model == "Winter"
+    )
+    
+    cfs_month <- cfs_df %>%
+  filter(month(SampleDate) == focal_month)
+    
+    if (prev_year) {
+        df_prev_month <- df %>%
+        filter(month(SampleDate) == prev_month, year(SampleDate) == year(SampleDate) - 1)
+        cfs_prev_month <- cfs_df %>%
+          filter(month(SampleDate) == prev_month, year(SampleDate) == year(SampleDate) - 1)
+    } else {
+        df_prev_month <- df %>%
+        filter(month(SampleDate) == prev_month)
+        cfs_prev_month <- cfs_df %>%
+          filter(month(SampleDate) == prev_month)
+    }
+    
+
+```
+
+# Salvage SHERLOCK
+
+During the month of `r month.name[focal_month]`, `r nrow(df_month)` WR LAD samples were processed through the SHERLOCK pipeline. This represents a `r round((nrow(df_month) - nrow(df_prev_month))/nrow(df_prev_month)*100, digits = 1)`% change from the previous month. 
+
+```{r Samples histogram}
+#| echo: FALSE
+#| warning: FALSE
+#| message: FALSE
+
+# Histogram of sample count over time
+df %>%
+    ggplot(aes(x = SampleDate, fill = SHERLOCK.Group)) +
+  geom_histogram(color = "black") +
+  labs(title = "WR LAD Sample Count",
+       x = "Date",
+       y = "Number of Samples") +
+  guides(fill=guide_legend(title="DWR GeM Lab assignment")) +
+  theme_classic()
+
+```
+
+## Comparison to CFS GT-seq
+
+Out of the `r nrow(cfs_month)` CFS samples processed in `r month.name[focal_month]`, `r nrow(df_month)` were also processed to a final run ID by the DWR GeM lab. The unfinalized samples are currently in these stages of the QA/QC process for these reasons:
+
+```{r GeM lab QA/QC table}
+#| echo: FALSE
+#| include: TRUE
+
+sherlock_counts <- cfs_month %>%
+    filter(!SHERLOCK.Group %in% c("Winter", "Fall", "Fall / Late Fall", "Spring")) %>%
+    group_by(SHERLOCK.Group) %>%
+    summarise(count = n()) %>%
+    arrange(desc(count))
+
+knitr::kable(sherlock_counts)
+```
+
+Of the `r nrow(df_month)` samples with completed run ID assignments, SHERLOCK and CFS GT-seq agreed on Winter/Non-Winter assignment on `r sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)` samples (`r round(sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)/length(df_month$GTSeq.Assignment)*100, digits = 1)`%). Looking beyond Winter/Non-Winter assignment to run-types, `r sum(df_month$SH.GT.concordance == TRUE)` (`r round(sum(df_month$SH.GT.concordance == TRUE)/nrow(df_month)*100, digits = 1)`%) were directly and fully concordant with the CFS GT-seq results. The concordance rate for each group is shown in the table below:
+
+
+```{r assignment concordance table}
+#| echo: FALSE
+#| include: TRUE
+#| warnings: FALSE
+
+assignment_concordance_table <- df_month %>%
+    group_by(SHERLOCK.Assignment, GTSeq.Assignment) %>%
+    summarise(count = n(), .groups = "drop") %>%
+  mutate(frequency = count / sum(count))
+
+knitr::kable(assignment_concordance_table)
+
+
+```
+
+```{r group concordance}
+#| echo: FALSE
+#| include: TRUE
+#| warnings: FALSE
+
+group_concordance_table <- df_month %>%
+    group_by(SHERLOCK.Group, GTSeq.Group) %>%
+    summarise(count = n(), .groups = "drop") %>%
+  mutate(Frequency = count / sum(count))
+
+knitr::kable(group_concordance_table)
+
+```
+
