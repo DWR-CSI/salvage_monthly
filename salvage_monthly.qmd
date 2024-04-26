@@ -33,7 +33,6 @@ library("readxl")
 library("ggplot2")
 library("lubridate")
 
-lad_long <- read_tsv("data/lad_long_WY2024.txt")
 excel_file <- read_excel("data/ONCOR_assignment_summary-WY2024-20240117.1_SaMT_SHERLOCK_Results.xlsx", sheet = "Working")
 names(excel_file) <- make.names(names(excel_file)) # Make column names valid
 excel_file <- excel_file %>%
