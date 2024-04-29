@@ -168,7 +168,7 @@ df_hist_p <- df %>%
   labs(title = "WR LAD Samples (GeM)",
        x = "Date",
        y = "Number of Samples") +
-  guides(fill=guide_legend(title="Run Assignment")) +
+  guides(fill=guide_legend(title="SHERLOCK (+ AIM) Run Assignment")) +
   theme_classic() +
   scale_fill_manual(values = run_color_mapping)
   
@@ -177,10 +177,10 @@ df_hist_p <- df %>%
 cfs_df_hist_p <- cfs_df %>%
     ggplot(aes(x = SampleDate, fill = GTSeq.Group)) +
   geom_histogram(color = "black") +
-  labs(title = "WR LAD Sample Count (CFS)",
+  labs(title = "WR LAD Samples (CFS)",
        x = "Date",
        y = "Number of Samples") +
-  guides(fill=guide_legend(title="Run Assignment")) +
+  guides(fill=guide_legend(title="CFS GT-seq Run Assignment")) +
   theme_classic() +
   scale_fill_manual(values = run_color_mapping)
 
