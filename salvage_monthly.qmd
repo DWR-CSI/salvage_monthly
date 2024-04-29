@@ -1,10 +1,24 @@
 ---
-title: "Salvage Monthly Report"
+title: "DWR GeM Lab Salvage Monthly Report"
 subtitle: "April 2024"
-author: "Bryan Nguyen"
+bibliography: references.bib
+csl: ecology-letters.csl
+author: 
+  - name: Bryan Nguyen
+    affiliations:
+      - id: dwr
+        name: California Department of Water Resources
+        city: West Sacramento
+        state: CA
+  - name: Melinda Baerwald
+    email: Melinda.Baerwald@water.ca.gov
+    attributes:
+      - corresponding: true
+    affiliations:
+      - ref: dwr
 format: 
     docx:
-        toc: FALSE
+        toc: true
 ---
 
 ```{r Settings}
@@ -22,16 +36,21 @@ if (prev_month == 0) {
 ```
 
 ```{r Libraries}
+#| echo: FALSE
+#| include: FALSE
+library("tidyverse")
+library("readxl")
+library("ggplot2")
+library("lubridate")
+library("cowplot")
+library("tools")
 ```
 
 ```{r Setup}
 #| echo: FALSE
 #| include: FALSE
 
-library("tidyverse")
-library("readxl")
-library("ggplot2")
-library("lubridate")
+
 
 excel_file <- read_excel("data/ONCOR_assignment_summary-WY2024-20240117.1_SaMT_SHERLOCK_Results.xlsx", sheet = "Working")
 names(excel_file) <- make.names(names(excel_file)) # Make column names valid
@@ -42,14 +61,48 @@ excel_file <- excel_file %>%
       "Non-Winter",
       GTSeq.Assignment
     )
-  )
-df <- excel_file %>%
-    mutate(
+  ) %>%
+  mutate(
+    GTSeq.OTS28 = tools::toTitleCase(GTSeq.OTS28),
+    SH_greb1l = case_when(
+      SH..OTS.28 == "Early / Early" ~ "Early",
+      SH..OTS.28 == "Late / Late" ~ "Late",
+      SH..OTS.28 == "Early / Late" ~ "Intermediate",
+      TRUE ~ "Other"
+      ),
+    Fluidigm.Final.Call = ifelse(Fluidigm.Final.Call == "NA", "Inconclusive", Fluidigm.Final.Call), # replace NA text with NA values
+    fluidigm_final = case_when(
+      Fluidigm.Final.Call == "Fall/Late-Fall" ~ "Fall / Late Fall",
+      Fluidigm.Final.Call %in% c("SpMill", "SpDeer") ~ "Spring",
+      Fluidigm.Final.Call == "LateFall" ~ "Late Fall",
+      TRUE ~ Fluidigm.Final.Call
+    ),
+    SH.AIM.concordance = case_when(
+      (SHERLOCK.Group == fluidigm_final) ~ TRUE,
+      (raw_SH == "Fall / Late Fall" & fluidigm_final %in% c("Fall", "Late Fall")) ~ TRUE,
+      is.na(fluidigm_final) ~ NA,
+      TRUE ~ FALSE
+    ),
+    )%>%
+        mutate(
         SampleDate = force_tz(SampleDate, "America/Los_Angeles"),
         pop_struct_used = str_detect(SHERLOCK.Group, "\\*"),
         SHERLOCK.Group = str_replace_all(SHERLOCK.Group, "\\*", ""),
-        SHERLOCK.Assignment = str_replace_all(SHERLOCK.Assignment, "\\*", "")
-    ) %>%
+        raw_SH = str_replace_all(raw_SH, "\\*", ""),
+        SHERLOCK.Assignment = str_replace_all(SHERLOCK.Assignment, "\\*", ""),
+        SHFLvGT_concordance = case_when(
+            (SHERLOCK.Group == "Fall / Late Fall" & GTSeq.Group %in% c("Fall", "Late Fall")) ~ TRUE,
+            (SHERLOCK.Group == GTSeq.Group) ~ TRUE,
+            TRUE ~ FALSE
+        ),
+        SH.AIM_concordance = case_when(
+            (raw_SH == "Fall / Late Fall" & GTSeq.Group %in% c("Fall", "Late Fall")) ~ TRUE,
+            (SHERLOCK.Group == GTSeq.Group) ~ TRUE,
+            TRUE ~ FALSE
+        ),
+    )
+
+df <- excel_file %>%
     filter(
         SHERLOCK.Group != "Likely heterozygote",
         SHERLOCK.Group != "Pending QA/QC",
@@ -57,18 +110,15 @@ df <- excel_file %>%
         GTSeq.Group != "Steelhead",
         Model == "Winter"
     ) %>%
-    rename(SH_OTS28 = SH..OTS.28)
+    rename(
+      SH_OTS28 = SH..OTS.28,
+      SH_OTS16 = SH..OTS.16
+      )
 
     df_month <- df %>%
     filter(month(SampleDate) == focal_month)
     
     cfs_df <- excel_file %>%
-  mutate(
-        SampleDate = force_tz(SampleDate, "America/Los_Angeles"),
-        pop_struct_used = str_detect(SHERLOCK.Group, "\\*"),
-        SHERLOCK.Group = str_replace_all(SHERLOCK.Group, "\\*", ""),
-        SHERLOCK.Assignment = str_replace_all(SHERLOCK.Assignment, "\\*", "")
-    ) %>%
   filter(
         GTSeq.Group != "Steelhead",
         Model == "Winter"
@@ -92,73 +142,183 @@ df <- excel_file %>%
 
 ```
 
-# Salvage SHERLOCK
+# Overview
 
-During the month of `r month.name[focal_month]`, `r nrow(df_month)` WR LAD samples were processed through the SHERLOCK pipeline. This represents a `r round((nrow(df_month) - nrow(df_prev_month))/nrow(df_prev_month)*100, digits = 1)`% change from the previous month. 
+## Executive Summary
+
+During the month of `r month.name[focal_month]`, `r nrow(df_month)` WR LAD samples were processed through the DWR Genetic Monitoring (GeM) Lab's Winter-run Length-at-Date rapid genetics pipeline. This represents a `r round((nrow(df_month) - nrow(df_prev_month))/nrow(df_prev_month)*100, digits = 1)`% change from the previous month. The GeM Lab identified `r sum(df_month$SHERLOCK.Assignment == "Winter")` individuals as Winter and `r sum(df_month$SHERLOCK.Assignment == "Non-Winter")` as Non-Winter, with a `r round(sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)/length(df_month$GTSeq.Assignment)*100, digits = 1)`% concordance with CFS GT-seq results. Looking at the finer level of run identification, GeM Lab results agreed with CFS run assignment for `r sum(df_month$SHFLvGT_concordance == TRUE, na.rm = TRUE)` (`r round(sum(df_month$SHFLvGT_concordance == TRUE, na.rm=TRUE)/sum(!is.na(df_month$SHFLvGT_concordance))*100, digits = 1)`%) of the total samples. Where SHERLOCK results and CFS GT-seq disagreed, additional Ancestry Informative Marker (AIM) data was produced and used to investigate discrepancies. When both SHERLOCK and AIM data were available and unambiguous (`r sum((!df_month$pop_struct_used) & (df_month$fluidigm_final != "Inconclusive"), na.rm = TRUE)` individuals), they supported the original run assignments derived from SHERLOCK in `r sum(df_month$Fluidigm.ed. == "done" & df_month$SH.GT.concordance == FALSE & df_month$SH.AIM.concordance == TRUE, na.rm=TRUE)` cases (`r round(sum(df_month$Fluidigm.ed. == "done" & df_month$SH.GT.concordance == FALSE & df_month$SH.AIM.concordance == TRUE, na.rm=TRUE)/sum(df_month$SH.GT.concordance == FALSE, na.rm=TRUE)*100, digits = 1)`% of the time).
 
 ```{r Samples histogram}
 #| echo: FALSE
 #| warning: FALSE
 #| message: FALSE
 
+run_color_palette <- RColorBrewer::brewer.pal(9, "Set1")
+run_color_mapping <- c("Fall / Late Fall" = run_color_palette[5],
+                       "Fall" = run_color_palette[6],
+                       "Late Fall" = run_color_palette[7],
+                       "Spring" = run_color_palette[3],
+                       "Winter" = run_color_palette[2])
+wnw_mapping <- c("Non-Winter" = run_color_palette[9], "Winter" = run_color_palette[2])
+
 # Histogram of sample count over time
-df %>%
+df_hist_p <- df %>%
     ggplot(aes(x = SampleDate, fill = SHERLOCK.Group)) +
   geom_histogram(color = "black") +
-  labs(title = "WR LAD Sample Count",
+  labs(title = "WR LAD Samples (GeM)",
        x = "Date",
        y = "Number of Samples") +
-  guides(fill=guide_legend(title="DWR GeM Lab assignment")) +
-  theme_classic()
+  guides(fill=guide_legend(title="Run Assignment")) +
+  theme_classic() +
+  scale_fill_manual(values = run_color_mapping)
+  
+  df_hist_p
+
+cfs_df_hist_p <- cfs_df %>%
+    ggplot(aes(x = SampleDate, fill = GTSeq.Group)) +
+  geom_histogram(color = "black") +
+  labs(title = "WR LAD Sample Count (CFS)",
+       x = "Date",
+       y = "Number of Samples") +
+  guides(fill=guide_legend(title="Run Assignment")) +
+  theme_classic() +
+  scale_fill_manual(values = run_color_mapping)
+
+cfs_df_hist_p
 
 ```
 
-## Comparison to CFS GT-seq
+# Run identification and Greb1l breakdown
 
-Out of the `r nrow(cfs_month)` CFS samples processed in `r month.name[focal_month]`, `r nrow(df_month)` were also processed to a final run ID by the DWR GeM lab. The unfinalized samples are currently in these stages of the QA/QC process for these reasons:
+## Greb1l genotype assigment
 
-```{r GeM lab QA/QC table}
+Of the `r nrow(df_month)` samples with completed run ID assignments, SHERLOCK and CFS GT-seq agreed on Greb1l assignment on `r sum(df_month$SH_greb1l == df_month$GTSeq.OTS28 )` samples (`r round(sum(df_month$SH_greb1l == df_month$GTSeq.OTS28)/length(df_month$GTSeq.OTS28)*100, digits = 1)`%).
+
+```{r Greb1l table}
 #| echo: FALSE
 #| include: TRUE
+#| warnings: FALSE
+greb1l_concordance_table <- df_month %>%
+    mutate(
+      SH_greb1l = case_when(
+        SH_OTS28 == "Early / Late" ~ "Intermediate",
+        TRUE ~ SH_greb1l
+      )
+    ) %>%
+    group_by(GTSeq.OTS28, SH_greb1l) %>%
+    summarise(count = n(), .groups = "drop") %>%
+  mutate(frequency = count / sum(count))
 
-sherlock_counts <- cfs_month %>%
-    filter(!SHERLOCK.Group %in% c("Winter", "Fall", "Fall / Late Fall", "Spring")) %>%
-    group_by(SHERLOCK.Group) %>%
-    summarise(count = n()) %>%
-    arrange(desc(count))
-
-knitr::kable(sherlock_counts)
+knitr::kable(greb1l_concordance_table, col.names = c("CFS GT-seq", "SHERLOCK", "Count", "Frequency"))
 ```
 
-Of the `r nrow(df_month)` samples with completed run ID assignments, SHERLOCK and CFS GT-seq agreed on Winter/Non-Winter assignment on `r sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)` samples (`r round(sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)/length(df_month$GTSeq.Assignment)*100, digits = 1)`%). Looking beyond Winter/Non-Winter assignment to run-types, `r sum(df_month$SH.GT.concordance == TRUE)` (`r round(sum(df_month$SH.GT.concordance == TRUE)/nrow(df_month)*100, digits = 1)`%) were directly and fully concordant with the CFS GT-seq results. The concordance rate for each group is shown in the table below:
+## Winter / Non-Winter assignment
 
+For Winter/Non-Winter and run-type assignment, SHERLOCK was solely used for `r sum(!df_month$pop_struct_used)` samples. Samples that are heterozygous or produce ambiguous results are resolved using a population structure method, Ancestry Informative Markers (AIM). For this reason, the remaining `r sum(df_month$pop_struct_used)` samples were assigned using a population structure method. Of the `r nrow(df_month)` samples with completed run ID assignments, GeM genetics (including both SHERLOCK and AIM population structure) and CFS GT-seq agreed on Winter/Non-Winter assignment on `r sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)` samples (`r round(sum(df_month$SHERLOCK.Assignment == df_month$GTSeq.Assignment)/length(df_month$GTSeq.Assignment)*100, digits = 1)`%).
 
-```{r assignment concordance table}
+```{r Winter / Non-Winter assignment concordance table}
 #| echo: FALSE
 #| include: TRUE
 #| warnings: FALSE
 
 assignment_concordance_table <- df_month %>%
-    group_by(SHERLOCK.Assignment, GTSeq.Assignment) %>%
+    group_by(GTSeq.Assignment, SHERLOCK.Assignment) %>%
     summarise(count = n(), .groups = "drop") %>%
   mutate(frequency = count / sum(count))
 
-knitr::kable(assignment_concordance_table)
+knitr::kable(assignment_concordance_table, col.names = c("CFS GT-seq", "GeM Lab", "Count", "Frequency"))
 
 
 ```
 
-```{r group concordance}
+## SHERLOCK Run assignment
+
+```{r run assignment concordance calculations}
+#| echo: FALSE
+#| include: FALSE
+
+```
+
+Looking beyond Winter/Non-Winter assignment to run-types, `r sum(df_month$SH.GT.concordance == TRUE, na.rm = TRUE)` (`r round(sum(df_month$SH.GT.concordance == TRUE, na.rm=TRUE)/sum(!is.na(df_month$SH.GT.concordance))*100, digits = 1)`%) of fully-resolved SHERLOCK assignments were directly and fully concordant with the CFS GT-seq results. `r sum(df_month$SH.GT.concordance == FALSE, na.rm=TRUE)` of the samples were discordant. Heterozygote results were not considered discordant.
+
+Final GeM lab SHERLOCK data were supplemented with AIM data to resolve runs for heterozygous individuals. That methodology is described below.
+
+```{r group concordance table}
+#| include: TRUE
+#| warnings: FALSE
+#| echo: FALSE
+SH_group_concordance_table <- df_month %>%
+    group_by(GTSeq.Group, raw_SH) %>%
+    summarise(count = n(), .groups = "drop") %>%
+  mutate(Frequency = count / sum(count))
+
+knitr::kable(SH_group_concordance_table, col.names = c("CFS GT-seq", "SHERLOCK", "Count", "Frequency"))
+
+```
+
+# Supplementary Methods
+
+## Combining SHERLOCK and AIM data
+
+The DWR GeM Lab produced additional AIM data [see @meek_sequencing_2016 for details] for `r sum(df_month$Fluidigm.ed. == "done", na.rm = TRUE)` samples (`r round(sum(df_month$Fluidigm.ed. == "done", na.rm = TRUE)/nrow(df_month)*100, digits = 1)`%) from `r month.name[focal_month]` to further investigate ambiguous, heterozygous, or otherwise unusual individuals. After supplementing SHERLOCK results with AIM data, the GeM Lab's run assignments aligned with CFS GT-seq for `r sum(df_month$SHFLvGT_concordance == TRUE, na.rm = TRUE)` (`r round(sum(df_month$SHFLvGT_concordance == TRUE, na.rm=TRUE)/sum(!is.na(df_month$SHFLvGT_concordance))*100, digits = 1)`%) fish.
+
+Fall and Late Fall run types from the GeM Lab were combined in the table below for simplification.
+
+```{r GeM vs GT-seq concordance table}
 #| echo: FALSE
 #| include: TRUE
 #| warnings: FALSE
 
 group_concordance_table <- df_month %>%
-    group_by(SHERLOCK.Group, GTSeq.Group) %>%
+    mutate(
+    SHERLOCK.Group = ifelse(SHERLOCK.Group %in% c("Fall", "Late Fall"), "Fall / Late Fall", SHERLOCK.Group),
+    fluidigm_final = ifelse(fluidigm_final %in% c("Fall", "Late Fall"), "Fall / Late Fall", fluidigm_final)
+    ) %>%
+    group_by(GTSeq.Group, SHERLOCK.Group) %>%
     summarise(count = n(), .groups = "drop") %>%
   mutate(Frequency = count / sum(count))
 
-knitr::kable(group_concordance_table)
+knitr::kable(group_concordance_table, col.names = c("CFS GT-seq", "GeM Run", "Count", "Frequency"))
+```
+
+## Comparing GT-seq and GeM AIM results
+
+In the `r sum(df_month$SH.GT.concordance == FALSE, na.rm=TRUE)` cases where SHERLOCK and GT-seq produced discordant results, additional AIM data was used to provide a third source of information. When SHERLOCK and GT-seq disagreed, the AIM data supported the SHERLOCK assignment `r sum(df_month$Fluidigm.ed. == "done" & df_month$SH.GT.concordance == FALSE & df_month$SH.AIM.concordance == TRUE, na.rm=TRUE)` cases (`r round(sum(df_month$Fluidigm.ed. == "done" & df_month$SH.GT.concordance == FALSE & df_month$SH.AIM.concordance == TRUE, na.rm=TRUE)/sum(df_month$SH.GT.concordance == FALSE, na.rm=TRUE)*100, digits = 1)`% of the time).
+
+Fall and Late Fall run types were combined in the first table below.
+
+```{r AIM concordance table}
+#| include: TRUE
+#| echo: FALSE
+#| tbl-cap: "Final GeM Lab and GT-seq Concordance Summary"
+#| tbl-cap-location: top
+
+SH_GT_discordant_data <- df_month %>%
+    filter(SH.GT.concordance == FALSE) %>%
+    select(ID, SampleDate, ForkLength, GTSeq.Group, SHERLOCK.Group, raw_SH, fluidigm_final) %>%
+  mutate(SampleDate = format(SampleDate, "%m-%d-%Y %H:%M")) 
+
+SH_GT_discordant_summary_table <- SH_GT_discordant_data %>%
+  mutate(
+    SHERLOCK.Group = ifelse(SHERLOCK.Group %in% c("Fall", "Late Fall"), "Fall / Late Fall", SHERLOCK.Group),
+    fluidigm_final = ifelse(fluidigm_final %in% c("Fall", "Late Fall"), "Fall / Late Fall", fluidigm_final)
+    ) %>%
+  group_by(GTSeq.Group, SHERLOCK.Group, raw_SH, fluidigm_final) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(Frequency = count / sum(count))
+
+knitr::kable(SH_GT_discordant_summary_table, col.names = c("CFS GT-seq", "GeM Lab Final Call", "SHERLOCK", "AIM", "Count", "Frequency"))
+```
+
+```{r final discordance details table}
+#| include: TRUE
+#| echo: FALSE
+#| tbl-cap: "Discordant Individual Details"
+#| tbl-cap-location: top
+
+knitr::kable(SH_GT_discordant_data, col.names = c("ID", "Sample Date", "Fork Length", "CFS GT-seq", "GeM Lab Final", "SHERLOCK", "AIM"))
+
 
 ```
 
+# References
